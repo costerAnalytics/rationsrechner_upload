@@ -25,8 +25,7 @@ access_bestand <- choose.files(caption = "Selektier Access Datenbank", multi = F
 if(length(access_bestand) == 0) stop('Selektier Access Datenbank')
 
 # Verbinding maken met Access
-accdb <- odbcDriverConnect(paste0(
-	"Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=", access_bestand))
+accdb <- odbcConnectAccess(access_bestand, DBMSencoding ='utf8')
 
 # Lijst van alle Access-tabellen
 tabellen <- sqlTables(accdb)
@@ -45,10 +44,12 @@ pgdb <- dbConnect(Postgres(),
 
 # Een voor een de tabellen uitlezen en wegschrijven
 for(tabel in tabellen){
+  tabel <- iconv(tabel, to = 'utf8')
+
 	print(tabel)
 	
 	# Lijstje van alle kolommen die in de tabel zijn
-	kolommen <- sqlColumns(accdb, tabel)
+	kolommen <- sqlColumns(accdb, `tabel`)
 	kolommen <- kolommen %>% select(kolom = COLUMN_NAME, type = TYPE_NAME)
 	kolommen <- kolommen %>% filter(!grepl('BLOB', type))	# BLOB betekent 'binary large object'. Zulke kolommen willen we overslaan. Waarschijnlijk ten overvloede; wel relevant voor Herde.
 	kolommen$kolom[is.na(kolommen$kolom)] <- "NA"
@@ -63,16 +64,17 @@ for(tabel in tabellen){
 	}
 	
 
-	
 	# De tabel uitlezen en in een tijdelijke tabel opslaan. De tijdelijke tabel heet hier 'dat'.
 	query <- paste(kolommen$kolom2, collapse = ',')
 	query <- paste0('select ', query, ' from [', tabel, ']')
+	query <- iconv(query, to = 'utf8')
 	dat <- quer(query)
 	colnames(dat) <- kolommen$kolom
 	
 	# Zorgen dat de datatypes van de kolommen kloppen. Met name: zorgen dat datums als datums worden herkend en gehele getallen zonder komma worden opgeslagen (bijvoorbeeld: 7 in plaats van 7.0)
 	integers <- kolommen$kolom[kolommen$type %in% c('COUNTER', 'BIGINT','INTEGER', 'SMALLINT')]
 	datums <- kolommen$kolom[kolommen$type == 'DATE']
+	currencies <- kolommen$kolom[kolommen$type == 'CURRENCY']
 	bits <- kolommen$kolom[kolommen$type == 'BIT']
 	for(k in integers) dat[,k] <- as.integer(dat[,k])
 	for(k in datums) dat[,k] <- as.Date(dat[,k])
@@ -87,7 +89,8 @@ for(tabel in tabellen){
 	colnames(dat) <- tolower(colnames(dat))
 
 	colnames(dat) <- iconv(colnames(dat), to = 'utf8')
-	tabel2 <- tolower(tabel)
+	# tabel2 <- tolower(tabel)
+	tabel2 <- tabel
 	tabel2 <- paste0('"', tabel2, '"')
 	tabel2 <- iconv(tabel2, to = "utf8")
 	# De tijdelijke tabel wegschrijven naar de PostgreSQL-database
